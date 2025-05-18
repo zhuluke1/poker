@@ -24,7 +24,7 @@ def get_game_state():
     global game
     if not game:
         return None
-        
+
     return {
         'pot': game.pot,
         'community_cards': [
@@ -65,19 +65,16 @@ def handle_disconnect():
         player_name = players[request.sid]
         del players[request.sid]
         emit('game_message', f'{player_name} has left the game', broadcast=True)
-        
+
         # If game exists, remove the player
         if game:
             game.players = [p for p in game.players if p.name != player_name]
             if len(game.players) < 2:
-                # Not enough players, reset the game
                 game = None
                 emit('game_message', 'Game reset due to insufficient players', broadcast=True)
             else:
-                # Update game state for remaining players
                 emit('game_state', get_game_state(), broadcast=True)
-        
-        # Send lobby update to all clients
+
         lobby_players = [{'name': name, 'ready': False} for name in players.values()]
         emit('lobby_update', lobby_players, broadcast=True)
 
@@ -89,37 +86,29 @@ def handle_join_game(data):
         if len(players) >= MAX_PLAYERS:
             emit('game_message', 'Game is full')
             return
-            
+
         player_name = data['name']
-        # Check if name is already taken by existing players
         if player_name in players.values():
             emit('game_message', 'Name already taken')
             return
-            
-        # Check if name is taken by players in the game
+
         if game and any(p.name == player_name for p in game.players):
             emit('game_message', 'Name already taken')
             return
-            
+
         players[request.sid] = player_name
-        
+
         if not game:
-            # Create new game with first player
             game = PokerGame([Player(player_name)])
             emit('game_message', f'{player_name} has joined the game')
         else:
-            # Add player to existing game
             game.players.append(Player(player_name))
             emit('game_message', f'{player_name} has joined the game')
-        
-        # Send lobby update to all clients
-        # The 'ready' status here indicates if a hand is in progress, not player readiness to start
+
         lobby_players = [{'name': name, 'ready': game is not None and game.is_hand_in_progress} for name in players.values()]
         emit('lobby_update', lobby_players, broadcast=True)
-        
-        # Send initial game state
         emit('game_state', get_game_state(), broadcast=True)
-            
+
     except Exception as e:
         logger.error(f'Error in join_game: {str(e)}')
         emit('game_message', 'An error occurred while joining the game')
@@ -129,18 +118,16 @@ def handle_start_game():
     global game
     if not game or request.sid not in players:
         return
-        
+
     player_name = players[request.sid]
-    # Only the first player can start the game
     if game.players[0].name != player_name:
         return
-        
+
     if len(game.players) >= 2 and not game.is_hand_in_progress:
         logger.debug('Starting new hand with two players')
         game.start_hand()
         emit('game_started', broadcast=True)
         emit('game_state', get_game_state(), broadcast=True)
-        # Notify the first player to act (small blind in heads-up)
         first_player = game.players[game.current_player_index]
         for sid, name in players.items():
             if name == first_player.name:
@@ -152,106 +139,75 @@ def handle_player_action(data):
     global game
     if not game or request.sid not in players:
         return
-        
+
     player_name = players[request.sid]
     player_index = next(i for i, p in enumerate(game.players) if p.name == player_name)
-    
-    if player_index != game.current_player_index:
-        emit('not_your_turn')
-        return
-    
     action = data['action']
-    if action == 'fold':
-        game.players[player_index].fold()
-    elif action == 'call':
-        amount = game.minimum_bet - game.players[player_index].bet
-        game.players[player_index].place_bet(amount)
-        game.pot += amount
-    elif action == 'raise':
-        amount = data['amount']
-        if amount >= game.minimum_bet * 2:
-            game.players[player_index].place_bet(amount)
-            game.pot += amount
-            game.minimum_bet = amount
-        else:
-            emit('game_message', 'Invalid raise amount')
-            return
-    
-    # Check if the current betting round is complete
-    if game.is_hand_complete():
-        # Count active players (not folded)
-        active_players = [p for p in game.players if not p.folded]
-        
-        if len(active_players) <= 1:
-            # Only one player left, they win the pot
-            winner = active_players[0]
-            winner.chips += game.pot
-            emit('game_message', f'{winner.name} wins ${game.pot} (everyone else folded)', broadcast=True)
-            
-            game.end_hand()
-            game.start_hand()
-            emit('game_message', 'Starting new hand', broadcast=True)
-        else:
-            # Reset bets for the next round
-            for player in game.players:
-                player.bet = 0
-            game.minimum_bet = game.big_blind
-            
-            # Deal next round of community cards
-            if len(game.community_cards) == 0:
-                # Deal flop
-                game.deal_community_cards(3)
-                emit('game_message', 'Dealing the flop', broadcast=True)
-            elif len(game.community_cards) == 3:
-                # Deal turn
-                game.deal_community_cards(1)
-                emit('game_message', 'Dealing the turn', broadcast=True)
-            elif len(game.community_cards) == 4:
-                # Deal river
-                game.deal_community_cards(1)
-                emit('game_message', 'Dealing the river', broadcast=True)
-            else:
-                # End of hand
-                winners = game.get_winners()
-                pot_per_winner = game.pot // len(winners)
-                
-                for winner in winners:
-                    winner.chips += pot_per_winner
-                    rank, kickers = HandEvaluator.evaluate_hand(winner.hand, game.community_cards)
-                    hand_name = HandEvaluator.get_hand_name(rank)
-                    emit('game_message', f'{winner.name} wins ${pot_per_winner} with {hand_name}', broadcast=True)
-                
+    amount = data.get('amount', 0)
+
+    if game.process_action(player_index, action, amount):
+        if game.is_betting_round_complete():
+            logger.debug(f'Betting round {game.current_betting_round} is complete.')
+            active_players_in_hand = [p for p in game.players if not p.folded]
+
+            if len(active_players_in_hand) <= 1:
+                winner = active_players_in_hand[0]
+                winner.chips += game.pot
+                emit('game_message', f'{winner.name} wins ${game.pot} (everyone else folded)', broadcast=True)
                 game.end_hand()
-                game.start_hand()
-                emit('game_message', 'Starting new hand', broadcast=True)
-        
-        # Set current player for next round
-        if len(game.players) == 2:  # Heads-up play
-            if len(game.community_cards) == 0:
-                # Pre-flop: Small blind (dealer) acts first
-                game.current_player_index = game.dealer_position
+                emit('game_state', get_game_state(), broadcast=True)
+
+            elif game.current_betting_round == 3:
+                logger.debug('River betting round complete, evaluating hands.')
+                winners = game.get_winners()
+                if winners:
+                    pot_per_winner = game.pot // len(winners)
+                    winner_names = ', '.join([w.name for w in winners])
+                    winning_hand_rank, winning_hand_kickers = HandEvaluator.evaluate_hand(winners[0].hand, game.community_cards)
+                    winning_hand_name = HandEvaluator.get_hand_name(winning_hand_rank)
+                    emit('game_message', f'{winner_names} win(s) ${pot_per_winner} each with {winning_hand_name}', broadcast=True)
+                    for winner in winners:
+                        winner.chips += pot_per_winner
+                else:
+                    emit('game_message', 'No active players to determine a winner.', broadcast=True)
+                game.end_hand()
+                emit('game_state', get_game_state(), broadcast=True)
+
             else:
-                # Post-flop: Big blind acts first
-                game.current_player_index = (game.dealer_position + 1) % 2
-        else:  # Regular play
-            # First to act is after the dealer
-            game.current_player_index = (game.dealer_position + 1) % len(game.players)
-            while game.players[game.current_player_index].folded:
-                game.current_player_index = (game.current_player_index + 1) % len(game.players)
+                logger.debug('Betting round complete, dealing next community card(s).')
+                if len(game.community_cards) == 0:
+                    game.deal_community_cards(3)
+                    emit('game_message', 'Dealing the Flop', broadcast=True)
+                elif len(game.community_cards) == 3:
+                    game.deal_community_cards(1)
+                    emit('game_message', 'Dealing the Turn', broadcast=True)
+                elif len(game.community_cards) == 4:
+                    game.deal_community_cards(1)
+                    emit('game_message', 'Dealing the River', broadcast=True)
+
+                emit('game_state', get_game_state(), broadcast=True)
+                if game.current_player_index is not None:
+                    next_player = game.players[game.current_player_index]
+                    for sid, name in players.items():
+                        if name == next_player.name:
+                            emit('your_turn', room=sid)
+                            break
+
+        else:
+            logger.debug('Betting round not complete, moving to next player.')
+            emit('game_state', get_game_state(), broadcast=True)
+            if game.current_player_index is not None:
+                next_player = game.players[game.current_player_index]
+                for sid, name in players.items():
+                    if name == next_player.name:
+                        emit('your_turn', room=sid)
+                        break
     else:
-        # Move to next player in current round
-        game.next_player()
-    
-    # Update game state
-    emit('game_state', get_game_state(), broadcast=True)
-    
-    # Notify next player
-    if game.current_player_index is not None:
-        next_player = game.players[game.current_player_index]
-        for sid, name in players.items():
-            if name == next_player.name:
-                emit('your_turn', room=sid)
-                break
+        highest_bet = max(p.bet for p in game.players) if game.players else 0
+        min_raise = highest_bet + (highest_bet - game.players[player_index].bet)
+        if game.current_betting_round == 0 and highest_bet == game.big_blind:
+            min_raise = game.big_blind
+        emit('game_message', f'Invalid action. Minimum raise is ${min_raise}.')
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True) 
+    socketio.run(app, debug=True)
