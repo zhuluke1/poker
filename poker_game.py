@@ -26,8 +26,13 @@ class PokerGame:
             player.clear_hand()
         
         # Post blinds
-        sb_pos = (self.dealer_position + 1) % len(self.players)
-        bb_pos = (self.dealer_position + 2) % len(self.players)
+        if len(self.players) == 2:  # Heads-up play
+            # In heads-up, dealer is small blind and acts first
+            sb_pos = self.dealer_position
+            bb_pos = (self.dealer_position + 1) % 2
+        else:  # Regular play
+            sb_pos = (self.dealer_position + 1) % len(self.players)
+            bb_pos = (self.dealer_position + 2) % len(self.players)
         
         self.players[sb_pos].place_bet(self.small_blind)
         self.players[bb_pos].place_bet(self.big_blind)
@@ -37,7 +42,14 @@ class PokerGame:
         for player in self.players:
             player.receive_cards(self.deck.deal(2))
         
-        self.current_player_index = (bb_pos + 1) % len(self.players)
+        # Set first to act
+        if len(self.players) == 2:  # Heads-up play
+            # Small blind (dealer) acts first pre-flop
+            self.current_player_index = sb_pos
+        else:  # Regular play
+            # First to act is after big blind
+            self.current_player_index = (bb_pos + 1) % len(self.players)
+        
         self.is_hand_in_progress = True
     
     def deal_community_cards(self, count: int):

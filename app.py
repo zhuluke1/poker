@@ -184,10 +184,19 @@ def handle_player_action(data):
                 game.start_hand()
                 emit('game_message', 'Starting new hand', broadcast=True)
         
-        # Set current player to the first active player after the dealer
-        game.current_player_index = (game.dealer_position + 1) % len(game.players)
-        while game.players[game.current_player_index].folded:
-            game.current_player_index = (game.current_player_index + 1) % len(game.players)
+        # Set current player for next round
+        if len(game.players) == 2:  # Heads-up play
+            if len(game.community_cards) == 0:
+                # Pre-flop: Small blind (dealer) acts first
+                game.current_player_index = game.dealer_position
+            else:
+                # Post-flop: Big blind acts first
+                game.current_player_index = (game.dealer_position + 1) % 2
+        else:  # Regular play
+            # First to act is after the dealer
+            game.current_player_index = (game.dealer_position + 1) % len(game.players)
+            while game.players[game.current_player_index].folded:
+                game.current_player_index = (game.current_player_index + 1) % len(game.players)
     else:
         # Move to next player in current round
         game.next_player()
