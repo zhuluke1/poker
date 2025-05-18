@@ -21,6 +21,7 @@ MAX_PLAYERS = 6
 
 def get_game_state():
     """Convert game state to JSON-serializable format"""
+    global game
     if not game:
         return None
         
@@ -56,14 +57,20 @@ def handle_connect():
 
 @socketio.on('disconnect')
 def handle_disconnect():
+    global game, players
     logger.debug(f'Client disconnected: {request.sid}')
     if request.sid in players:
         player_name = players[request.sid]
         del players[request.sid]
         emit('game_message', f'{player_name} has left the game', broadcast=True)
+        
+        # If no players left, reset the game
+        if not players and game:
+            game = None
 
 @socketio.on('join_game')
 def handle_join_game(data):
+    global game, players
     logger.debug(f'Join game request from {request.sid}: {data}')
     try:
         if len(players) >= MAX_PLAYERS:
@@ -81,18 +88,27 @@ def handle_join_game(data):
             # Add player to existing game
             game.players.append(Player(player_name))
             emit('game_message', f'{player_name} has joined the game')
-        
-        # Start game if we have enough players
-        if len(game.players) >= 2 and not game.is_hand_in_progress:
-            game.start_hand()
-            emit('game_state', get_game_state(), broadcast=True)
-            emit('your_turn', room=request.sid)
+            
+            # Start game if we have enough players and no hand is in progress
+            if len(game.players) >= 2 and not game.is_hand_in_progress:
+                game.start_hand()
+                emit('game_state', get_game_state(), broadcast=True)
+                # Notify the first player to act
+                first_player = game.players[game.current_player_index]
+                for sid, name in players.items():
+                    if name == first_player.name:
+                        emit('your_turn', room=sid)
+                        break
+            else:
+                # If a hand is in progress, just send the current game state
+                emit('game_state', get_game_state(), broadcast=True)
     except Exception as e:
         logger.error(f'Error in join_game: {str(e)}')
         emit('game_message', 'An error occurred while joining the game')
 
 @socketio.on('player_action')
 def handle_player_action(data):
+    global game
     if not game or request.sid not in players:
         return
         

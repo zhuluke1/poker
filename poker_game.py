@@ -14,6 +14,7 @@ class PokerGame:
         self.dealer_position = 0
         self.current_player_index = 0
         self.minimum_bet = big_blind
+        self.is_hand_in_progress = False
     
     def start_hand(self):
         """Start a new hand"""
@@ -37,6 +38,7 @@ class PokerGame:
             player.receive_cards(self.deck.deal(2))
         
         self.current_player_index = (bb_pos + 1) % len(self.players)
+        self.is_hand_in_progress = True
     
     def deal_community_cards(self, count: int):
         """Deal community cards"""
@@ -68,6 +70,7 @@ class PokerGame:
     def end_hand(self):
         """End the current hand and move the dealer button"""
         self.dealer_position = (self.dealer_position + 1) % len(self.players)
+        self.is_hand_in_progress = False
     
     def get_active_players(self) -> List[Player]:
         """Get list of players who haven't folded"""
