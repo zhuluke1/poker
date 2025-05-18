@@ -136,19 +136,26 @@ def handle_player_action(data):
             emit('game_message', 'Invalid raise amount')
             return
     
-    # Move to next player
-    next_player = game.next_player()
-    if not next_player:
-        # Hand is complete
+    # Check if the current betting round is complete
+    if game.is_hand_complete():
+        # Reset bets for the next round
+        for player in game.players:
+            player.bet = 0
+        game.minimum_bet = game.big_blind
+        
+        # Deal next round of community cards
         if len(game.community_cards) == 0:
             # Deal flop
             game.deal_community_cards(3)
+            emit('game_message', 'Dealing the flop', broadcast=True)
         elif len(game.community_cards) == 3:
             # Deal turn
             game.deal_community_cards(1)
+            emit('game_message', 'Dealing the turn', broadcast=True)
         elif len(game.community_cards) == 4:
             # Deal river
             game.deal_community_cards(1)
+            emit('game_message', 'Dealing the river', broadcast=True)
         else:
             # End of hand
             winners = game.get_winners()
@@ -162,13 +169,22 @@ def handle_player_action(data):
             
             game.end_hand()
             game.start_hand()
+            emit('game_message', 'Starting new hand', broadcast=True)
+        
+        # Set current player to the first active player after the dealer
+        game.current_player_index = (game.dealer_position + 1) % len(game.players)
+        while game.players[game.current_player_index].folded:
+            game.current_player_index = (game.current_player_index + 1) % len(game.players)
+    else:
+        # Move to next player in current round
+        game.next_player()
     
     # Update game state
     emit('game_state', get_game_state(), broadcast=True)
     
     # Notify next player
-    if next_player:
-        next_player_index = game.players.index(next_player)
+    if game.current_player_index is not None:
+        next_player = game.players[game.current_player_index]
         for sid, name in players.items():
             if name == next_player.name:
                 emit('your_turn', room=sid)
