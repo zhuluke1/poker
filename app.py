@@ -143,33 +143,46 @@ def handle_player_action(data):
             player.bet = 0
         game.minimum_bet = game.big_blind
         
-        # Deal next round of community cards
-        if len(game.community_cards) == 0:
-            # Deal flop
-            game.deal_community_cards(3)
-            emit('game_message', 'Dealing the flop', broadcast=True)
-        elif len(game.community_cards) == 3:
-            # Deal turn
-            game.deal_community_cards(1)
-            emit('game_message', 'Dealing the turn', broadcast=True)
-        elif len(game.community_cards) == 4:
-            # Deal river
-            game.deal_community_cards(1)
-            emit('game_message', 'Dealing the river', broadcast=True)
-        else:
-            # End of hand
-            winners = game.get_winners()
-            pot_per_winner = game.pot // len(winners)
-            
-            for winner in winners:
-                winner.chips += pot_per_winner
-                rank, kickers = HandEvaluator.evaluate_hand(winner.hand, game.community_cards)
-                hand_name = HandEvaluator.get_hand_name(rank)
-                emit('game_message', f'{winner.name} wins ${pot_per_winner} with {hand_name}', broadcast=True)
+        # Count active players (not folded)
+        active_players = [p for p in game.players if not p.folded]
+        
+        if len(active_players) <= 1:
+            # Only one player left, they win the pot
+            winner = active_players[0]
+            winner.chips += game.pot
+            emit('game_message', f'{winner.name} wins ${game.pot} (everyone else folded)', broadcast=True)
             
             game.end_hand()
             game.start_hand()
             emit('game_message', 'Starting new hand', broadcast=True)
+        else:
+            # Deal next round of community cards
+            if len(game.community_cards) == 0:
+                # Deal flop
+                game.deal_community_cards(3)
+                emit('game_message', 'Dealing the flop', broadcast=True)
+            elif len(game.community_cards) == 3:
+                # Deal turn
+                game.deal_community_cards(1)
+                emit('game_message', 'Dealing the turn', broadcast=True)
+            elif len(game.community_cards) == 4:
+                # Deal river
+                game.deal_community_cards(1)
+                emit('game_message', 'Dealing the river', broadcast=True)
+            else:
+                # End of hand
+                winners = game.get_winners()
+                pot_per_winner = game.pot // len(winners)
+                
+                for winner in winners:
+                    winner.chips += pot_per_winner
+                    rank, kickers = HandEvaluator.evaluate_hand(winner.hand, game.community_cards)
+                    hand_name = HandEvaluator.get_hand_name(rank)
+                    emit('game_message', f'{winner.name} wins ${pot_per_winner} with {hand_name}', broadcast=True)
+                
+                game.end_hand()
+                game.start_hand()
+                emit('game_message', 'Starting new hand', broadcast=True)
         
         # Set current player to the first active player after the dealer
         game.current_player_index = (game.dealer_position + 1) % len(game.players)
