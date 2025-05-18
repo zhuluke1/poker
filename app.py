@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key'
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 # Game state
 game = None
@@ -44,7 +44,8 @@ def get_game_state():
             }
             for i, player in enumerate(game.players)
         ],
-        'dealer_position': game.dealer_position
+        'dealer_position': game.dealer_position,
+        'current_player_index': game.current_player_index
     }
 
 @app.route('/')
@@ -64,9 +65,20 @@ def handle_disconnect():
         del players[request.sid]
         emit('game_message', f'{player_name} has left the game', broadcast=True)
         
-        # If no players left, reset the game
-        if not players and game:
-            game = None
+        # If game exists, remove the player
+        if game:
+            game.players = [p for p in game.players if p.name != player_name]
+            if len(game.players) < 2:
+                # Not enough players, reset the game
+                game = None
+                emit('game_message', 'Game reset due to insufficient players', broadcast=True)
+            else:
+                # Update game state for remaining players
+                emit('game_state', get_game_state(), broadcast=True)
+        
+        # Send lobby update to all clients
+        lobby_players = [{'name': name, 'ready': False} for name in players.values()]
+        emit('lobby_update', lobby_players, broadcast=True)
 
 @socketio.on('join_game')
 def handle_join_game(data):
@@ -78,36 +90,59 @@ def handle_join_game(data):
             return
             
         player_name = data['name']
+        # Check if name is already taken by existing players
+        if player_name in players.values():
+            emit('game_message', 'Name already taken')
+            return
+            
+        # Check if name is taken by players in the game
+        if game and any(p.name == player_name for p in game.players):
+            emit('game_message', 'Name already taken')
+            return
+            
         players[request.sid] = player_name
         
         if not game:
             # Create new game with first player
             game = PokerGame([Player(player_name)])
             emit('game_message', f'{player_name} has joined the game')
-            # Send initial game state
-            emit('game_state', get_game_state(), broadcast=True)
         else:
             # Add player to existing game
             game.players.append(Player(player_name))
             emit('game_message', f'{player_name} has joined the game')
-            
-            # Start game if we have enough players and no hand is in progress
-            if len(game.players) >= 2 and not game.is_hand_in_progress:
-                logger.debug('Starting new hand with two players')
-                game.start_hand()
-                emit('game_state', get_game_state(), broadcast=True)
-                # Notify the first player to act (small blind in heads-up)
-                first_player = game.players[game.current_player_index]
-                for sid, name in players.items():
-                    if name == first_player.name:
-                        emit('your_turn', room=sid)
-                        break
-            else:
-                # If a hand is in progress, just send the current game state
-                emit('game_state', get_game_state(), broadcast=True)
+        
+        # Send lobby update to all clients
+        lobby_players = [{'name': name, 'ready': False} for name in players.values()]
+        emit('lobby_update', lobby_players, broadcast=True)
+        
+        # Send initial game state
+        emit('game_state', get_game_state(), broadcast=True)
     except Exception as e:
         logger.error(f'Error in join_game: {str(e)}')
         emit('game_message', 'An error occurred while joining the game')
+
+@socketio.on('start_game')
+def handle_start_game():
+    global game
+    if not game or request.sid not in players:
+        return
+        
+    player_name = players[request.sid]
+    # Only the first player can start the game
+    if game.players[0].name != player_name:
+        return
+        
+    if len(game.players) >= 2 and not game.is_hand_in_progress:
+        logger.debug('Starting new hand with two players')
+        game.start_hand()
+        emit('game_started', broadcast=True)
+        emit('game_state', get_game_state(), broadcast=True)
+        # Notify the first player to act (small blind in heads-up)
+        first_player = game.players[game.current_player_index]
+        for sid, name in players.items():
+            if name == first_player.name:
+                emit('your_turn', room=sid)
+                break
 
 @socketio.on('player_action')
 def handle_player_action(data):

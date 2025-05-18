@@ -1,6 +1,13 @@
-const socket = io();
+const socket = io({
+    transports: ['websocket'],
+    reconnection: true,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000
+});
+
 let playerName = '';
 let isMyTurn = false;
+let isGameStarted = false;
 
 // Debug logging
 function log(message) {
@@ -10,14 +17,17 @@ function log(message) {
 // DOM Elements
 const loginModal = new bootstrap.Modal(document.getElementById('loginModal'));
 const gameControls = document.getElementById('game-controls');
+const gameControlsLobby = document.getElementById('game-controls-lobby');
 const gameMessages = document.getElementById('game-messages');
+const playerList = document.getElementById('player-list');
+const startGameBtn = document.getElementById('start-game-btn');
 const raiseSlider = document.getElementById('raise-slider');
 const raiseAmount = document.getElementById('raise-amount');
 const potAmount = document.getElementById('pot-amount');
 
 // Show login modal on page load
 document.addEventListener('DOMContentLoaded', () => {
-    log('Page loaded, showing login modal');
+    console.log('Page loaded, showing login modal');
     loginModal.show();
 });
 
@@ -28,34 +38,57 @@ socket.on('connect', () => {
 });
 
 socket.on('connect_error', (error) => {
-    log(`Connection error: ${error}`);
+    console.error('Connection error:', error);
     showMessage('Failed to connect to server');
 });
 
 socket.on('disconnect', () => {
     console.log('Disconnected from server');
     showMessage('Disconnected from server');
+    gameControls.style.display = 'none';
+    gameControlsLobby.style.display = 'none';
+});
+
+socket.on('reconnect', (attemptNumber) => {
+    console.log('Reconnected after', attemptNumber, 'attempts');
+    showMessage('Reconnected to server');
+    if (playerName) {
+        socket.emit('join_game', { name: playerName });
+    }
 });
 
 // Handle login form submission
 document.getElementById('login-form').addEventListener('submit', (e) => {
     e.preventDefault();
-    playerName = document.getElementById('player-name').value;
-    log(`Attempting to join game as ${playerName}`);
+    playerName = document.getElementById('player-name').value.trim();
+    if (!playerName) {
+        showMessage('Please enter a name');
+        return;
+    }
+    console.log(`Attempting to join game as ${playerName}`);
     socket.emit('join_game', { name: playerName });
     loginModal.hide();
+});
+
+// Start game button handler
+startGameBtn.addEventListener('click', () => {
+    socket.emit('start_game');
 });
 
 // Game control buttons
 document.getElementById('fold-btn').addEventListener('click', () => {
     if (isMyTurn) {
         socket.emit('player_action', { action: 'fold' });
+        isMyTurn = false;
+        gameControls.style.display = 'none';
     }
 });
 
 document.getElementById('check-call-btn').addEventListener('click', () => {
     if (isMyTurn) {
         socket.emit('player_action', { action: 'call' });
+        isMyTurn = false;
+        gameControls.style.display = 'none';
     }
 });
 
@@ -63,6 +96,8 @@ document.getElementById('raise-btn').addEventListener('click', () => {
     if (isMyTurn) {
         const amount = parseInt(raiseSlider.value);
         socket.emit('player_action', { action: 'raise', amount });
+        isMyTurn = false;
+        gameControls.style.display = 'none';
     }
 });
 
@@ -74,17 +109,34 @@ raiseSlider.addEventListener('input', () => {
 // Socket event handlers
 socket.on('game_state', (state) => {
     console.log('Received game state:', state);
+    if (!state) {
+        showMessage('Game not available');
+        return;
+    }
     updateGameState(state);
+});
+
+socket.on('lobby_update', (players) => {
+    console.log('Lobby update:', players);
+    updateLobby(players);
+});
+
+socket.on('game_started', () => {
+    console.log('Game started');
+    isGameStarted = true;
+    gameControlsLobby.style.display = 'none';
+    showMessage('Game started!');
 });
 
 socket.on('your_turn', () => {
     console.log('It\'s your turn');
     showMessage('It\'s your turn');
-    document.getElementById('game-controls').style.display = 'block';
+    isMyTurn = true;
+    gameControls.style.display = 'block';
 });
 
 socket.on('not_your_turn', () => {
-    log('Not your turn');
+    console.log('Not your turn');
     isMyTurn = false;
     gameControls.style.display = 'none';
 });
@@ -211,4 +263,25 @@ function showMessage(message) {
     setTimeout(() => {
         gameMessages.style.display = 'none';
     }, 3000);
+}
+
+// Update lobby display
+function updateLobby(players) {
+    playerList.innerHTML = '';
+    players.forEach(player => {
+        const playerDiv = document.createElement('div');
+        playerDiv.className = `player-list-item ${player.ready ? 'ready' : ''}`;
+        playerDiv.innerHTML = `
+            <span>${player.name}</span>
+            <span>${player.ready ? 'Ready' : 'Waiting'}</span>
+        `;
+        playerList.appendChild(playerDiv);
+    });
+
+    // Show start game button if player is the first one and game hasn't started
+    if (!isGameStarted && players.length >= 2 && players[0].name === playerName) {
+        gameControlsLobby.style.display = 'block';
+    } else {
+        gameControlsLobby.style.display = 'none';
+    }
 } 
