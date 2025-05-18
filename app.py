@@ -45,7 +45,8 @@ def get_game_state():
             for i, player in enumerate(game.players)
         ],
         'dealer_position': game.dealer_position,
-        'current_player_index': game.current_player_index
+        'current_player_index': game.current_player_index,
+        'minimum_bet': game.minimum_bet
     }
 
 @app.route('/')
@@ -112,11 +113,13 @@ def handle_join_game(data):
             emit('game_message', f'{player_name} has joined the game')
         
         # Send lobby update to all clients
-        lobby_players = [{'name': name, 'ready': False} for name in players.values()]
+        # The 'ready' status here indicates if a hand is in progress, not player readiness to start
+        lobby_players = [{'name': name, 'ready': game is not None and game.is_hand_in_progress} for name in players.values()]
         emit('lobby_update', lobby_players, broadcast=True)
         
         # Send initial game state
         emit('game_state', get_game_state(), broadcast=True)
+            
     except Exception as e:
         logger.error(f'Error in join_game: {str(e)}')
         emit('game_message', 'An error occurred while joining the game')
