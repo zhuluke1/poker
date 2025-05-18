@@ -138,11 +138,6 @@ def handle_player_action(data):
     
     # Check if the current betting round is complete
     if game.is_hand_complete():
-        # Reset bets for the next round
-        for player in game.players:
-            player.bet = 0
-        game.minimum_bet = game.big_blind
-        
         # Count active players (not folded)
         active_players = [p for p in game.players if not p.folded]
         
@@ -156,6 +151,11 @@ def handle_player_action(data):
             game.start_hand()
             emit('game_message', 'Starting new hand', broadcast=True)
         else:
+            # Reset bets for the next round
+            for player in game.players:
+                player.bet = 0
+            game.minimum_bet = game.big_blind
+            
             # Deal next round of community cards
             if len(game.community_cards) == 0:
                 # Deal flop

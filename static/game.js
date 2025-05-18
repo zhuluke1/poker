@@ -102,7 +102,7 @@ function updateGameState(state) {
     updateCommunityCards(state.community_cards);
 
     // Update players
-    updatePlayers(state.players);
+    updatePlayers(state.players, state.dealer_position);
 
     // Update dealer button
     updateDealerButton(state.dealer_position);
@@ -120,7 +120,7 @@ function updateCommunityCards(cards) {
     });
 }
 
-function updatePlayers(players) {
+function updatePlayers(players, dealerPosition) {
     const container = document.querySelector('.players-container');
     container.innerHTML = '';
 
@@ -129,8 +129,13 @@ function updatePlayers(players) {
         playerDiv.className = `player ${player.is_current ? 'active' : ''}`;
         playerDiv.id = `player${index}`;
 
+        // Add dealer button if this is the dealer position
+        const dealerButton = index === dealerPosition ? 
+            '<div class="dealer-button">D</div>' : '';
+
         playerDiv.innerHTML = `
             <div class="player-info">
+                ${dealerButton}
                 <div class="player-name">${player.name}</div>
                 <div class="player-chips">$${player.chips}</div>
                 <div class="player-bet">Bet: $${player.bet}</div>
