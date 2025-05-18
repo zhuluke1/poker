@@ -70,14 +70,31 @@ class PokerGame:
                 return None
     
     def is_hand_complete(self) -> bool:
-        """Check if the current hand is complete"""
+        """Check if the current betting round is complete"""
         active_players = [p for p in self.players if not p.folded]
         if len(active_players) <= 1:
             return True
             
         # Check if all active players have matched the highest bet
         highest_bet = max(p.bet for p in self.players)
-        return all(p.bet == highest_bet or p.is_all_in for p in active_players)
+        
+        # In heads-up play, we need to ensure both players have acted
+        if len(self.players) == 2:
+            # If we're pre-flop, both players must have acted
+            if len(self.community_cards) == 0:
+                # Small blind must have acted (either called or raised)
+                sb_pos = self.dealer_position
+                if self.players[sb_pos].bet < self.big_blind:
+                    return False
+                # Big blind must have acted if small blind raised
+                bb_pos = (self.dealer_position + 1) % 2
+                if self.players[sb_pos].bet > self.big_blind and self.players[bb_pos].bet < self.players[sb_pos].bet:
+                    return False
+            # Post-flop, just check if bets are matched
+            return all(p.bet == highest_bet or p.is_all_in for p in active_players)
+        else:
+            # Regular play: check if all active players have matched the highest bet
+            return all(p.bet == highest_bet or p.is_all_in for p in active_players)
     
     def end_hand(self):
         """End the current hand and move the dealer button"""
