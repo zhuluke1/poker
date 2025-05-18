@@ -23,7 +23,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Socket connection events
 socket.on('connect', () => {
-    log('Connected to server');
+    console.log('Connected to server');
+    showMessage('Connected to server');
 });
 
 socket.on('connect_error', (error) => {
@@ -32,7 +33,7 @@ socket.on('connect_error', (error) => {
 });
 
 socket.on('disconnect', () => {
-    log('Disconnected from server');
+    console.log('Disconnected from server');
     showMessage('Disconnected from server');
 });
 
@@ -72,14 +73,14 @@ raiseSlider.addEventListener('input', () => {
 
 // Socket event handlers
 socket.on('game_state', (state) => {
-    log('Received game state update');
+    console.log('Received game state:', state);
     updateGameState(state);
 });
 
 socket.on('your_turn', () => {
-    log('It is your turn');
-    isMyTurn = true;
-    gameControls.style.display = 'block';
+    console.log('It\'s your turn');
+    showMessage('It\'s your turn');
+    document.getElementById('game-controls').style.display = 'block';
 });
 
 socket.on('not_your_turn', () => {
@@ -89,23 +90,37 @@ socket.on('not_your_turn', () => {
 });
 
 socket.on('game_message', (message) => {
-    log(`Game message: ${message}`);
+    console.log('Game message:', message);
     showMessage(message);
 });
 
 // Update game state
 function updateGameState(state) {
+    console.log('Updating game state:', state);
     // Update pot
-    potAmount.textContent = state.pot;
-
+    document.getElementById('pot').textContent = `Pot: $${state.pot}`;
+    
     // Update community cards
-    updateCommunityCards(state.community_cards);
-
+    const communityCards = document.getElementById('community-cards');
+    communityCards.innerHTML = '';
+    state.community_cards.forEach(card => {
+        const cardElement = document.createElement('div');
+        cardElement.className = 'card';
+        cardElement.textContent = `${card.rank}${card.suit}`;
+        communityCards.appendChild(cardElement);
+    });
+    
     // Update players
     updatePlayers(state.players, state.dealer_position);
-
-    // Update dealer button
-    updateDealerButton(state.dealer_position);
+    
+    // Show/hide game controls based on whether it's the player's turn
+    const gameControls = document.getElementById('game-controls');
+    const currentPlayer = state.players[state.current_player_index];
+    if (currentPlayer && currentPlayer.name === playerName) {
+        gameControls.style.display = 'block';
+    } else {
+        gameControls.style.display = 'none';
+    }
 }
 
 function updateCommunityCards(cards) {

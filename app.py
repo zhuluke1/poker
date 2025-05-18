@@ -84,6 +84,8 @@ def handle_join_game(data):
             # Create new game with first player
             game = PokerGame([Player(player_name)])
             emit('game_message', f'{player_name} has joined the game')
+            # Send initial game state
+            emit('game_state', get_game_state(), broadcast=True)
         else:
             # Add player to existing game
             game.players.append(Player(player_name))
@@ -91,9 +93,10 @@ def handle_join_game(data):
             
             # Start game if we have enough players and no hand is in progress
             if len(game.players) >= 2 and not game.is_hand_in_progress:
+                logger.debug('Starting new hand with two players')
                 game.start_hand()
                 emit('game_state', get_game_state(), broadcast=True)
-                # Notify the first player to act
+                # Notify the first player to act (small blind in heads-up)
                 first_player = game.players[game.current_player_index]
                 for sid, name in players.items():
                     if name == first_player.name:
